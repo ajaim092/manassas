@@ -1,0 +1,638 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manassas and Manassas Park Cities, VA</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            height: calc(100vh - 190px);
+        }
+        #header {
+            height: 40px;
+            background: #4B0033;
+            color: white;
+            text-align: center;
+            line-height: 40px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        #filter-bar {
+            height: 50px;
+            background: #f8f8f8;
+            padding: 10px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #slider-bar {
+            height: 50px;
+            background: #f0f0f0;
+            padding: 10px;
+            text-align: center;
+        }
+        #oz-table {
+            height: 50px;
+            background: #fff;
+            padding: 10px;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            border-top: 1px solid #ccc;
+            overflow: auto;
+        }
+        #oz-table table {
+            margin: 0 auto;
+            border-collapse: collapse;
+        }
+        #oz-table th, #oz-table td {
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+        }
+        #oz-table th {
+            background: #f8f8f8;
+        }
+        #links {
+            height: 40px;
+            background: #fff;
+            padding: 5px;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            border-top: 1px solid #ccc;
+        }
+        #links a {
+            margin: 0 10px;
+            font-size: 14px;
+            color: #0066cc;
+            text-decoration: none;
+        }
+        #links a:hover {
+            text-decoration: underline;
+        }
+        #filter-bar label {
+            margin: 0 15px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+        }
+        #hoct-filter, #ffiec-filter {
+            margin-left: 5px;
+            padding: 5px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            background: white;
+        }
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-button {
+            padding: 5px 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            background: white;
+            cursor: pointer;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 300px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1000;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            left: 0;
+        }
+        .dropdown-content a {
+            color: black;
+            padding: 8px 12px;
+            text-decoration: none;
+            display: block;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        .dropdown-content a:hover {
+            background-color: #f1f1f1;
+        }
+        .dropdown.active .dropdown-content {
+            display: block;
+        }
+        .leaflet-control-legend {
+            background: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            line-height: 1.5;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            display: inline-block;
+        }
+        .tract-label {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 5px;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 3px;
+            white-space: nowrap;
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+    </style>
+</head>
+<body>
+    <div id="header">Manassas City and Manassas Park City, VA</div>
+    <div id="filter-bar">
+        <label><input type="checkbox" id="qct-filter"> QCT</label>
+        <label><input type="checkbox" id="dda-filter"> DDA</label>
+        <label>HOCT: 
+            <select id="hoct-filter">
+                <option value="All">All</option>
+                <option value="12-10">< 12% but >= 10%</option>
+                <option value="10-3">< 10% but >= 3%</option>
+                <option value="3-0">< 3%</option>
+            </select>
+        </label>
+        <label>FFIEC: 
+            <select id="ffiec-filter">
+                <option value="All">All</option>
+                <option value="Rural">Rural</option>
+                <option value="Urban">Urban</option>
+                <option value="Mixed">Mixed</option>
+            </select>
+        </label>
+        <label>Navigate:
+            <div class="dropdown">
+                <div class="dropdown-button" onclick="this.parentElement.classList.toggle('active')">Select County</div>
+                <div class="dropdown-content">
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/brunswick_map.html" target="_blank">Brunswick County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/buchanan_map.html" target="_blank">Buchanan County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Clarke%20County%20Map%20with%20FMR%20and%20Income%20Limits.html" target="_blank">Clarke County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/craig_map.html" target="_blank">Craig County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Culpeper%20County%20Map%20with%20FMR%20and%20Income%20Limits.html" target="_blank">Culpeper County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/dickenson_map.html" target="_blank">Dickenson County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/essex_map.html" target="_blank">Essex County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Fauquier%20County%20Map%20with%20FMRs%20and%20ILs.html" target="_blank">Fauquier County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/floyd_map.html" target="_blank">Floyd County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Frederick%20County%20Map%20with%20FMRs%20and%20ILs.html" target="_blank">Frederick County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/lee_map.html" target="_blank">Lee County</a>
+                    <a href="#" target="_blank">Manassas City</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Page%20County%20FMRs%20and%20ILs.html" target="_blank">Page County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Prince%20William%20County%20Map%20with%20FMRs%20and%20ILs.html" target="_blank">Prince William County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/pulaski_map.html" target="_blank">Pulaski County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Rappahannock%20County%20Map%20with%20FMRs%20and%20ILs.html" target="_blank">Rappahannock County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/russell_map.html" target="_blank">Russell County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Scott%20County%20Nav.html" target="_blank">Scott County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Shenandoah%20County%20Map%20with%20FMRs%20and%20ILs.html" target="_blank">Shenandoah County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/tazewell_map.html" target="_blank">Tazewell County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/Warren%20County%20Map%20with%20FMRs%20and%20ILs.html" target="_blank">Warren County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/washington_map.html" target="_blank">Washington County</a>
+                    <a href="file:///C:/Users/ajaimes/Downloads/Finished%20Maps/wise_map.html" target="_blank">Wise County</a>
+                </div>
+            </div>
+        </label>
+    </div>
+    <div id="slider-bar">
+        <label for="poverty-range">Poverty Rate (%): <span id="range-value">0.0 - 40.0</span></label>
+        <div id="poverty-range"></div>
+    </div>
+    <div id="map"></div>
+    <div id="oz-table">
+        <table>
+            <tr><th>Opportunity Zone Tracts</th></tr>
+            <tr><td>Tract 9102.01</td></tr>
+        </table>
+    </div>
+    <div id="links">
+        <a href="https://www.huduser.gov/portal/datasets/fmr/fmrs/FY2025_code/2025summary.odn?&year=2025&fmrtype=Final&selection_type=county&fips=5168399999" target="_blank">2025 Fair Market Rents (FMRs)</a>
+        <a href="https://www.huduser.gov/portal/datasets/il/il2025/2025summary.odn?STATES=51.0&INPUTNAME=METRO47900M47900*5168399999%2BManassas+city&statelist=&stname=Virginia&wherefrom=&statefp=51&year=2025&ne_flag=&selection_type=county&incpath=&data=2025&SubmitButton=View+County+Calculations" target="_blank">2025 Income Limits</a>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+    <script>
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+                try {
+                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                    var firstSheetName = workbook.SheetNames[0];
+                    var worksheet = workbook.Sheets[firstSheetName];
+                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                    var filteredData = jsonData.filter(row => row.some(filledCell));
+                    var headerRowIndex = filteredData.findIndex((row, index) =>
+                      row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                    );
+                    if (headerRowIndex === -1 || headerRowIndex > 25) {
+                      headerRowIndex = 0;
+                    }
+                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                    return csv;
+                } catch (e) {
+                    console.error(e);
+                    return "";
+                }
+            }
+            return gk_fileData[filename] || "";
+        }
+
+        var map = L.map('map').setView([38.76215, -77.46155], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        var tracts = [
+            {
+                name: "Tract 9101",
+                centroid: [38.7605536, -77.4890907],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 12.5,
+                unemployment: 2.8,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9101</b><br>Centroid: 38.7605536, -77.4890907<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 12.5%<br>Unemployment Rate (2023): 2.8%"
+            },
+            {
+                name: "Tract 9102.01",
+                centroid: [38.7622914, -77.4711757],
+                qct: "NO",
+                dda: "NO",
+                oz: "YES",
+                poverty: 5.5,
+                unemployment: 0.8,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9102.01</b><br>Centroid: 38.7622914, -77.4711757<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 5.5%<br>Unemployment Rate (2023): 0.8%"
+            },
+            {
+                name: "Tract 9102.02",
+                centroid: [38.7720101, -77.4710503],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 8.1,
+                unemployment: 2.9,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9102.02</b><br>Centroid: 38.7720101, -77.4710503<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 8.1%<br>Unemployment Rate (2023): 2.9%"
+            },
+            {
+                name: "Tract 9103.01",
+                centroid: [38.7530233, -77.4563068],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 5.1,
+                unemployment: 5.7,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9103.01</b><br>Centroid: 38.7530233, -77.4563068<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 5.1%<br>Unemployment Rate (2023): 5.7%"
+            },
+            {
+                name: "Tract 9103.02",
+                centroid: [38.7398169, -77.4656866],
+                qct: "YES",
+                dda: "NO",
+                oz: "NO",
+                poverty: 3.8,
+                unemployment: 2.3,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9103.02</b><br>Centroid: 38.7398169, -77.4656866<br>QCT: YES<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 3.8%<br>Unemployment Rate (2023): 2.3%"
+            },
+            {
+                name: "Tract 9104.01",
+                centroid: [38.7464561, -77.4811519],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 12.4,
+                unemployment: 2.0,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9104.01</b><br>Centroid: 38.7464561, -77.4811519<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 12.4%<br>Unemployment Rate (2023): 2.0%"
+            },
+            {
+                name: "Tract 9104.02",
+                centroid: [38.7354023, -77.5026181],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 9.5,
+                unemployment: 1.2,
+                ffiec: "Mixed",
+                popup: "<b>Census Tract 9104.02</b><br>Centroid: 38.7354023, -77.5026181<br>QCT: NO<br>DDA: NO<br>FFIEC: Mixed<br>Poverty Rate (2023): 9.5%<br>Unemployment Rate (2023): 1.2%"
+            },
+            {
+                name: "Tract 9201",
+                centroid: [38.7808628, -77.4649323],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 8.2,
+                unemployment: 4.2,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9201</b><br>Centroid: 38.7808628, -77.4649323<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 8.2%<br>Unemployment Rate (2023): 4.2%"
+            },
+            {
+                name: "Tract 9201.01",
+                centroid: [38.7727331, -77.442201],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 2.4,
+                unemployment: 4.6,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9201.01</b><br>Centroid: 38.7727331, -77.442201<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 2.4%<br>Unemployment Rate (2023): 4.6%"
+            },
+            {
+                name: "Tract 9202.02",
+                centroid: [38.765034, -77.4317688],
+                qct: "NO",
+                dda: "NO",
+                oz: "NO",
+                poverty: 4.2,
+                unemployment: 2.3,
+                ffiec: "Urban",
+                popup: "<b>Census Tract 9202.02</b><br>Centroid: 38.765034, -77.4317688<br>QCT: NO<br>DDA: NO<br>FFIEC: Urban<br>Poverty Rate (2023): 4.2%<br>Unemployment Rate (2023): 2.3%"
+            }
+        ];
+
+        var manassasGeoJSON = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [-77.475584, 38.781112],
+                                [-77.487813, 38.769113],
+                                [-77.495453, 38.770649],
+                                [-77.50127, 38.76132],
+                                [-77.512656, 38.747343],
+                                [-77.512864, 38.744167],
+                                [-77.52257, 38.740854],
+                                [-77.519902, 38.735324],
+                                [-77.525424, 38.735242],
+                                [-77.526661, 38.733201],
+                                [-77.524463, 38.727337],
+                                [-77.524816, 38.724348],
+                                [-77.521516, 38.722994],
+                                [-77.522771, 38.719081],
+                                [-77.519216, 38.716048],
+                                [-77.513349, 38.716163],
+                                [-77.506239, 38.706106],
+                                [-77.502518, 38.712761],
+                                [-77.502526, 38.715507],
+                                [-77.508995, 38.721291],
+                                [-77.507611, 38.72305],
+                                [-77.513345, 38.731107],
+                                [-77.514999, 38.735829],
+                                [-77.506911, 38.740537],
+                                [-77.49943, 38.737137],
+                                [-77.498769, 38.733511],
+                                [-77.493912, 38.725451],
+                                [-77.485137, 38.73287],
+                                [-77.471111, 38.727711],
+                                [-77.458946, 38.73324],
+                                [-77.451642, 38.738337],
+                                [-77.449144, 38.750125],
+                                [-77.449525, 38.753503],
+                                [-77.447707, 38.760856],
+                                [-77.456577, 38.765945],
+                                [-77.460601, 38.770116],
+                                [-77.458695, 38.772319],
+                                [-77.474607, 38.78116],
+                                [-77.475584, 38.781112]
+                            ],
+                            [
+                                [-77.481139, 38.756111],
+                                [-77.478629, 38.754906],
+                                [-77.47706, 38.750514],
+                                [-77.481383, 38.751339],
+                                [-77.481139, 38.756111]
+                            ]
+                        ]
+                    },
+                    "properties": {
+                        "NAME": "Manassas",
+                        "NAMELSAD": "Manassas city"
+                    }
+                }
+            ]
+        };
+
+        var manassasParkGeoJSON = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [-77.458695, 38.772319],
+                                [-77.443495, 38.763791],
+                                [-77.443344, 38.75809],
+                                [-77.446993, 38.756199],
+                                [-77.441271, 38.749654],
+                                [-77.438058, 38.750587],
+                                [-77.435993, 38.755111],
+                                [-77.43052, 38.75606],
+                                [-77.427332, 38.753598],
+                                [-77.420581, 38.762287],
+                                [-77.423616, 38.769374],
+                                [-77.419425, 38.769731],
+                                [-77.422013, 38.776644],
+                                [-77.427465, 38.778945],
+                                [-77.434253, 38.778345],
+                                [-77.439766, 38.783106],
+                                [-77.443746, 38.779578],
+                                [-77.442628, 38.775553],
+                                [-77.444875, 38.770495],
+                                [-77.459499, 38.778395],
+                                [-77.458507, 38.787394],
+                                [-77.473228, 38.788409],
+                                [-77.479113, 38.782255],
+                                [-77.475584, 38.781112],
+                                [-77.458695, 38.772319]
+                            ]
+                        ]
+                    },
+                    "properties": {
+                        "NAME": "Manassas Park",
+                        "NAMELSAD": "Manassas Park city"
+                    }
+                }
+            ]
+        };
+
+        var markerLayer = L.layerGroup().addTo(map);
+
+        L.geoJSON(manassasGeoJSON, {
+            style: {
+                color: '#333',
+                weight: 2,
+                opacity: 0.8,
+                fillColor: '#666',
+                fillOpacity: 0.1
+            },
+            onEachFeature: function(feature, layer) {
+                layer.bindPopup("Manassas City, VA Boundary");
+            }
+        }).addTo(map);
+
+        L.geoJSON(manassasParkGeoJSON, {
+            style: {
+                color: '#006',
+                weight: 2,
+                opacity: 0.8,
+                fillColor: '#339',
+                fillOpacity: 0.1
+            },
+            onEachFeature: function(feature, layer) {
+                layer.bindPopup("Manassas Park City, VA Boundary");
+            }
+        }).addTo(map);
+
+        function getMarkerColor(qct, dda) {
+            if (qct === "YES") return "yellow";
+            if (dda === "YES") return "red";
+            return "blue";
+        }
+
+        function updateMarkers() {
+            markerLayer.clearLayers();
+            var qctFilter = document.getElementById("qct-filter").checked;
+            var ddaFilter = document.getElementById("dda-filter").checked;
+            var hoctFilter = document.getElementById("hoct-filter").value;
+            var ffiecFilter = document.getElementById("ffiec-filter").value;
+            var slider = document.getElementById("poverty-range");
+            var [minPoverty, maxPoverty] = slider.noUiSlider.get();
+            tracts.forEach(function(tract) {
+                var showMarker = true;
+                if (qctFilter && !(tract.qct === "YES" && tract.dda !== "YES")) showMarker = false;
+                if (ddaFilter && !(tract.dda === "YES" && tract.qct !== "YES")) showMarker = false;
+                if (hoctFilter !== "All") {
+                    if (hoctFilter === "12-10" && !(tract.poverty < 12 && tract.poverty >= 10)) showMarker = false;
+                    if (hoctFilter === "10-3" && !(tract.poverty < 10 && tract.poverty >= 3)) showMarker = false;
+                    if (hoctFilter === "3-0" && !(tract.poverty < 3)) showMarker = false;
+                }
+                if (ffiecFilter !== "All" && tract.ffiec !== ffiecFilter) showMarker = false;
+                if (tract.poverty < minPoverty || tract.poverty > maxPoverty) showMarker = false;
+                if (showMarker) {
+                    var marker = L.marker(tract.centroid, {
+                        icon: L.divIcon({
+                            className: "custom-marker",
+                            html: `<div class="tract-label">${tract.name}</div>` +
+                                  `<div style="background: ${getMarkerColor(tract.qct, tract.dda)}; width: 16px; height: 16px; border-radius: 50%; border: 1px solid #000;"></div>`,
+                            iconSize: [16, 40],
+                            iconAnchor: [8, 40],
+                            popupAnchor: [0, -30]
+                        })
+                    }).addTo(markerLayer);
+                    marker.bindPopup(tract.popup);
+                }
+            });
+        }
+
+        var slider = document.getElementById("poverty-range");
+        noUiSlider.create(slider, {
+            start: [0, 40],
+            range: {
+                'min': 0,
+                'max': 40
+            },
+            step: 0.1,
+            connect: true
+        });
+        slider.noUiSlider.on("update", function(values, handle) {
+            var minValue = values[0];
+            var maxValue = values[1];
+            document.getElementById("range-value").textContent = minValue + " - " + maxValue;
+            updateMarkers();
+        });
+
+        updateMarkers();
+        document.getElementById("qct-filter").addEventListener("change", updateMarkers);
+        document.getElementById("dda-filter").addEventListener("change", updateMarkers);
+        document.getElementById("hoct-filter").addEventListener("change", updateMarkers);
+        document.getElementById("ffiec-filter").addEventListener("change", updateMarkers);
+
+        var legend = L.control({ position: "bottomright" });
+        legend.onAdd = function(map) {
+            var div = L.DomUtil.create("div", "leaflet-control-legend");
+            div.innerHTML = `
+                <div class="legend-item"><span class="legend-color" style="background: yellow;"></span>QCT</div>
+                <div class="legend-item"><span class="legend-color" style="background: red;"></span>DDA</div>
+                <div class="legend-item"><span class="legend-color" style="background: blue;"></span>Census Tract</div>
+            `;
+            return div;
+        };
+        legend.addTo(map);
+    </script>
+</body>
+</html>
